@@ -1,0 +1,567 @@
+{
+  "name": "Operational_Reporting",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        128
+      ],
+      "id": "fc83e200-2d9c-4c51-aa7a-ccd3393e9c19",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/home/node/.n8n-files/work_logs.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        416
+      ],
+      "id": "c88be777-b195-4c42-9774-6ffab56ac839",
+      "name": "Read HR CSV"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        416
+      ],
+      "id": "5c8def45-d115-4f1f-91eb-f748fd795a04",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3000/sales",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        224,
+        -160
+      ],
+      "id": "4a2076e7-b270-471e-a0be-57e4e0facb5f",
+      "name": "HTTP Request Sales"
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\n\nfor (const item of items) {\n  const sale = item.json;\n\n  // Revenue metric\n  output.push({\n    json: {\n      date: sale.order_date,\n      source_system: \"sales\",\n      metric_name: \"revenue\",\n      metric_value: sale.total_amount,\n      dimensions: {\n        region: sale.region,\n        product: sale.product\n      }\n    }\n  });\n\n  // Orders count metric\n  output.push({\n    json: {\n      date: sale.order_date,\n      source_system: \"sales\",\n      metric_name: \"orders_count\",\n      metric_value: 1,\n      dimensions: {\n        region: sale.region,\n        product: sale.product\n      }\n    }\n  });\n}\n\nreturn output;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -160
+      ],
+      "id": "ecf9239c-894f-4adf-b2e0-8016fbac100a",
+      "name": "Sales Gold Model"
+    },
+    {
+      "parameters": {
+        "jsCode": "const aggregated = {};\n\nfor (const item of items) {\n  const { date, source_system, metric_name, metric_value, dimensions } = item.json;\n\n  const key = `${date}|${metric_name}|${dimensions.region}`;\n\n  if (!aggregated[key]) {\n    aggregated[key] = {\n      date,\n      source_system,\n      metric_name,\n      metric_value: 0,\n      dimensions: {\n        region: dimensions.region\n      }\n    };\n  }\n\n  aggregated[key].metric_value += metric_value;\n}\n\nreturn Object.values(aggregated).map(row => ({ json: row }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -160
+      ],
+      "id": "cb51b20c-d2cf-46e9-9e96-dddebe8f856d",
+      "name": "Aggregate Sales Daily"
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\n\nfor (const item of items) {\n  const hr = item.json;\n\n  // Hours worked metric\n  output.push({\n    json: {\n      date: hr.date,\n      source_system: \"hr\",\n      metric_name: \"hours_worked\",\n      metric_value: Number(hr.hours_worked),\n      dimensions: {\n        department: hr.department,\n        employee_id: hr.employee_id,\n        remote: hr.remote\n      }\n    }\n  });\n\n  // Absence metric (only if absence is true)\n  if (hr.absence === true || hr.absence === \"true\") {\n    output.push({\n      json: {\n        date: hr.date,\n        source_system: \"hr\",\n        metric_name: \"absence_count\",\n        metric_value: 1,\n        dimensions: {\n          department: hr.department,\n          employee_id: hr.employee_id\n        }\n      }\n    });\n  }\n}\n\nreturn output;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        416
+      ],
+      "id": "e62ba2d4-cb11-4b64-8e57-c9773f697cf4",
+      "name": "HR Gold Model"
+    },
+    {
+      "parameters": {
+        "jsCode": "const aggregated = {};\n\nfor (const item of items) {\n  const date = String(item.json.date).trim();\n  const metric_name = String(item.json.metric_name).trim();\n  const metric_value = Number(item.json.metric_value);\n\n  // 🔑 Normalización CLAVE\n  const department = String(item.json.dimensions.department).trim();\n\n  const key = `${date}|${metric_name}|${department}`;\n\n  if (!aggregated[key]) {\n    aggregated[key] = {\n      date,\n      source_system: \"hr\",\n      metric_name,\n      metric_value: 0,\n      dimensions: {\n        department\n      }\n    };\n  }\n\n  aggregated[key].metric_value += metric_value;\n}\n\nreturn Object.values(aggregated).map(r => ({ json: r }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        416
+      ],
+      "id": "516b4f45-392e-4ccb-8d9e-ac00073440c0",
+      "name": "Aggregate HR Daily"
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3000/support",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        224,
+        32
+      ],
+      "id": "acb53501-0c7f-4ad7-ab18-e9af186791ac",
+      "name": "HTTP Request Support"
+    },
+    {
+      "parameters": {
+        "jsCode": "const aggregated = {};\n\nfor (const item of items) {\n  const date = String(item.json.date);\n  const metric_name = item.json.metric_name;\n  const metric_value = Number(item.json.metric_value);\n\n  const { category, priority, team } = item.json.dimensions;\n\n  const key = `${date}|${metric_name}|${category}|${priority}|${team}`;\n\n  if (!aggregated[key]) {\n    aggregated[key] = {\n      date,\n      source_system: \"support\",\n      metric_name,\n      metric_value: 0,\n      _count: 0,\n      dimensions: {\n        category,\n        priority,\n        team\n      }\n    };\n  }\n\n  aggregated[key].metric_value += metric_value;\n  aggregated[key]._count += 1;\n}\n\n// Post-process averages\nfor (const row of Object.values(aggregated)) {\n  if (row.metric_name === \"resolution_time_hours\") {\n    row.metric_value = Number((row.metric_value / row._count).toFixed(2));\n  }\n  delete row._count;\n}\n\nreturn Object.values(aggregated).map(r => ({ json: r }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        32
+      ],
+      "id": "4c869af5-c031-4fcf-8d1c-6924179bdd9e",
+      "name": "Aggregate Support Daily"
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\n\nfor (const item of items) {\n  const t = item.json;\n\n  const date = t.created_at.slice(0, 10);\n\n  // Ticket created\n  output.push({\n    json: {\n      date,\n      source_system: \"support\",\n      metric_name: \"tickets_created\",\n      metric_value: 1,\n      dimensions: {\n        category: t.category,\n        priority: t.priority,\n        team: t.assigned_team\n      }\n    }\n  });\n\n  // Ticket resolved\n  if (t.status === \"Resolved\") {\n    output.push({\n      json: {\n        date,\n        source_system: \"support\",\n        metric_name: \"tickets_resolved\",\n        metric_value: 1,\n        dimensions: {\n          category: t.category,\n          priority: t.priority,\n          team: t.assigned_team\n        }\n      }\n    });\n\n    output.push({\n      json: {\n        date,\n        source_system: \"support\",\n        metric_name: \"resolution_time_hours\",\n        metric_value: Number(t.resolution_time_hours),\n        dimensions: {\n          category: t.category,\n          priority: t.priority,\n          team: t.assigned_team\n        }\n      }\n    });\n  }\n}\n\nreturn output;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        32
+      ],
+      "id": "895ba662-2fd8-414e-9ea2-2d10ed10d959",
+      "name": "Support Gold Model"
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\n\nfor (const item of items) {\n  const log = item.json;\n  const date = log.timestamp.slice(0, 10);\n\n  // Request count\n  output.push({\n    json: {\n      date,\n      source_system: \"ops\",\n      metric_name: \"request_count\",\n      metric_value: 1,\n      dimensions: {\n        service: log.service_name,\n        environment: log.environment,\n        status: log.status\n      }\n    }\n  });\n\n  // Response time\n  output.push({\n    json: {\n      date,\n      source_system: \"ops\",\n      metric_name: \"response_time_ms\",\n      metric_value: Number(log.response_time_ms),\n      dimensions: {\n        service: log.service_name,\n        environment: log.environment\n      }\n    }\n  });\n\n  // Error count (only if error)\n  if (log.status !== \"ok\") {\n    output.push({\n      json: {\n        date,\n        source_system: \"ops\",\n        metric_name: \"error_count\",\n        metric_value: 1,\n        dimensions: {\n          service: log.service_name,\n          environment: log.environment,\n          error_code: log.error_code\n        }\n      }\n    });\n  }\n}\n\nreturn output;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        224
+      ],
+      "id": "e4b031ff-bb3b-4f46-a747-a1ffae1fbf56",
+      "name": "OPS Gold Model"
+    },
+    {
+      "parameters": {
+        "jsCode": "const aggregated = {};\n\nfor (const item of items) {\n  const date = String(item.json.date);\n  const metric_name = item.json.metric_name;\n  const metric_value = Number(item.json.metric_value);\n\n  const { service, environment } = item.json.dimensions;\n\n  const key = `${date}|${metric_name}|${service}|${environment}`;\n\n  if (!aggregated[key]) {\n    aggregated[key] = {\n      date,\n      source_system: \"ops\",\n      metric_name,\n      metric_value: 0,\n      _count: 0,\n      dimensions: {\n        service,\n        environment\n      }\n    };\n  }\n\n  aggregated[key].metric_value += metric_value;\n  aggregated[key]._count += 1;\n}\n\n// Post-process averages\nfor (const row of Object.values(aggregated)) {\n  if (row.metric_name === \"response_time_ms\") {\n    row.metric_value = Number((row.metric_value / row._count).toFixed(2));\n  }\n  delete row._count;\n}\n\nreturn Object.values(aggregated).map(r => ({ json: r }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        224
+      ],
+      "id": "2df4406f-4396-432b-802a-ce532906fdf7",
+      "name": "Aggregate Ops Daily"
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:3000/ops",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        224,
+        224
+      ],
+      "id": "359eca8f-7c1b-44a4-8d00-04292564a0fe",
+      "name": "HTTP Request OPS"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        144
+      ],
+      "id": "d2a569ca-da9f-46d2-a119-e16e398bb8b5",
+      "name": "Gold Final Union"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "19YHU8ZjyGg0MNZvWSQeSpVpv-HRhWUXSibqBk3SECi0",
+          "mode": "list",
+          "cachedResultName": "Operational_Reporting_Gold",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/19YHU8ZjyGg0MNZvWSQeSpVpv-HRhWUXSibqBk3SECi0/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/19YHU8ZjyGg0MNZvWSQeSpVpv-HRhWUXSibqBk3SECi0/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sourde_system": "={{ $json.source_system }}",
+            "metric_name": "={{ $json.metric_name }}",
+            "metric_value": "={{ $json.metric_value }}",
+            "dimensions": "={{ JSON.stringify($json.dimensions) }}",
+            "date": "={{ $json.date }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sourde_system",
+              "displayName": "sourde_system",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "metric_name",
+              "displayName": "metric_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "metric_value",
+              "displayName": "metric_value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "dimensions",
+              "displayName": "dimensions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1520,
+        144
+      ],
+      "id": "989e81cf-6b5c-484b-b103-de44e766a376",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "VwtGuvxYyycoddHt",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0418f973-8b9c-4716-b032-fafe9b130762",
+              "name": "date",
+              "value": "={{ $json.date }}",
+              "type": "string"
+            },
+            {
+              "id": "d9295cd3-1556-4833-9a8b-7c6f4c50b9bd",
+              "name": "source_system",
+              "value": "={{ $json.source_system }}",
+              "type": "string"
+            },
+            {
+              "id": "63855f75-113a-4153-9015-0f1b24597c3e",
+              "name": "metric_name",
+              "value": "={{ $json.metric_name }}",
+              "type": "string"
+            },
+            {
+              "id": "c39ea165-2534-4fdb-8741-ecb7e2947bcd",
+              "name": "metric_value",
+              "value": "={{ $json.metric_value }}",
+              "type": "number"
+            },
+            {
+              "id": "5178b32f-cb47-4b23-be9d-650c735d3a41",
+              "name": "dimensions",
+              "value": "={{ $json.dimensions }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1312,
+        144
+      ],
+      "id": "ac29a7ba-6ce0-4726-900e-0395743a157f",
+      "name": "Normalization"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Sales",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Request Support",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Request OPS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read HR CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read HR CSV": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Sales": {
+      "main": [
+        [
+          {
+            "node": "Sales Gold Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sales Gold Model": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Sales Daily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "HR Gold Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HR Gold Model": {
+      "main": [
+        [
+          {
+            "node": "Aggregate HR Daily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Support": {
+      "main": [
+        [
+          {
+            "node": "Support Gold Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Support Gold Model": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Support Daily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OPS Gold Model": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Ops Daily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request OPS": {
+      "main": [
+        [
+          {
+            "node": "OPS Gold Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Sales Daily": {
+      "main": [
+        [
+          {
+            "node": "Gold Final Union",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Support Daily": {
+      "main": [
+        [
+          {
+            "node": "Gold Final Union",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Ops Daily": {
+      "main": [
+        [
+          {
+            "node": "Gold Final Union",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate HR Daily": {
+      "main": [
+        [
+          {
+            "node": "Gold Final Union",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gold Final Union": {
+      "main": [
+        [
+          {
+            "node": "Normalization",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalization": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "883b6dfc-e57a-445a-a5fa-346d84e03001",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "640ddce0cdf6d6862f2d5f6f5a457c01955a2917f07d5facd5d7bb477d7b2241"
+  },
+  "id": "KRPh0klOc9nYuOzS",
+  "tags": []
+}
