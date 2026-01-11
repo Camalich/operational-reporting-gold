@@ -1,0 +1,16 @@
+# OS / Editor noise
+.DS_Store
+Thumbs.db
+
+# n8n / local runtime
+.n8n/
+.env
+.env.*
+*.log
+
+# Temporary exports
+tmp/
+temp/
+
+# Node / tooling (if added later)
+node_modules/
